@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,24 +16,118 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/kelseyhightower/envconfig"
+	"google.golang.org/protobuf/proto"
 )
 
 type Config struct {
-	Address      string `envconfig:"ADDRESS" default:"backbone.cardano.iog.io:3001"`
-	Network      string `envconfig:"NETWORK" default:"mainnet"`
-	NetworkMagic uint32 `envconfig:"NETWORK_MAGIC" default:"0"`
+	Address       string `envconfig:"ADDRESS" default:"backbone.cardano.iog.io:3001"`
+	Network       string `envconfig:"NETWORK" default:"mainnet"`
+	NetworkMagic  uint32 `envconfig:"NETWORK_MAGIC" default:"0"`
+	PipelineLimit uint32 `envconfig:"PIPELINE_LIMIT" default:"10"`
+}
+
+type SlotConfig struct {
+	ZeroTime   int64
+	ZeroSlot   uint64
+	SlotLength int64
+}
+
+var SlotConfigNetwork = map[string]SlotConfig{
+	"mainnet": {ZeroTime: 1596059091000, ZeroSlot: 4492800, SlotLength: 1000},
+	"preview": {ZeroTime: 1666656000000, ZeroSlot: 0, SlotLength: 1000},
+	"preprod": {ZeroTime: 1654041600000 + 1728000000, ZeroSlot: 86400, SlotLength: 1000},
+}
+
+func slotToBeginUnixTime(slot uint64, slotConfig SlotConfig) int64 {
+	msAfterBegin := int64(slot-slotConfig.ZeroSlot) * slotConfig.SlotLength
+	return slotConfig.ZeroTime + msAfterBegin
+}
+
+type FirehoseInstrumentation struct {
+	blockTypeURL string
+	logger       *log.Logger
+	slotConfig   SlotConfig
+}
+
+func NewFirehoseInstrumentation(blockTypeURL string, logger *log.Logger, slotConfig SlotConfig) *FirehoseInstrumentation {
+	return &FirehoseInstrumentation{
+		blockTypeURL: blockTypeURL,
+		logger:       logger,
+		slotConfig:   slotConfig,
+	}
+}
+
+func (f *FirehoseInstrumentation) Init() {
+	f.logger.Printf("FIRE INIT 3.0 %s\n", f.blockTypeURL)
+}
+
+func (f *FirehoseInstrumentation) OutputBlock(block ledger.Block) error {
+	blockNumber := block.BlockNumber()
+	blockHash := block.Hash()
+	parentNumber := blockNumber - 1
+	parentHash := block.Header().PrevHash()
+	libNum := blockNumber - 108
+	timestampMs := slotToBeginUnixTime(block.SlotNumber(), f.slotConfig)
+	timestamp := timestampMs * 1000000
+
+	blockData, err := f.serializeBlock(block)
+	if err != nil {
+		return fmt.Errorf("failed to serialize block: %w", err)
+	}
+	encodedData := base64.StdEncoding.EncodeToString(blockData)
+
+	fireBlock := fmt.Sprintf(
+		"FIRE BLOCK %d %s %d %s %d %d %s",
+		blockNumber,  // Block slot number
+		blockHash,    // Block hash
+		parentNumber, // Parent block slot number
+		parentHash,   // Parent block hash
+		libNum,       // Last irreversible block number
+		timestamp,    // Block timestamp (nanoseconds)
+		encodedData,  // Base64 encoded block payload
+	)
+	f.logger.Println(fireBlock)
+	return nil
+}
+
+func (f *FirehoseInstrumentation) serializeBlock(block ledger.Block) ([]byte, error) {
+	utxoBlock, err := block.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get UTXO RPC: %w", err)
+	}
+	data, err := proto.Marshal(utxoBlock)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal UTXO block: %w", err)
+	}
+	return data, nil
 }
 
 type BlockFetcher struct {
 	config     *Config
 	connection *ouroboros.Connection
 	logger     *log.Logger
+	slogger    *slog.Logger
+	firehose   *FirehoseInstrumentation
+	slotConfig SlotConfig
 }
 
 func NewBlockFetcher(cfg *Config, logger *log.Logger) *BlockFetcher {
+	slotConfig, exists := SlotConfigNetwork[cfg.Network]
+	if !exists {
+		slotConfig = SlotConfigNetwork["mainnet"]
+		logger.Printf("Warning: Unknown network '%s', defaulting to mainnet slot config", cfg.Network)
+	}
+
+	firehose := NewFirehoseInstrumentation("type.googleapis.com/sf.cardano.type.v1.Block", logger, slotConfig)
+
+	slogger := slog.Default()
+
 	return &BlockFetcher{
-		config: cfg,
-		logger: logger,
+		config:     cfg,
+		logger:     logger,
+		slogger:    slogger,
+		firehose:   firehose,
+		slotConfig: slotConfig,
 	}
 }
 
@@ -41,6 +137,13 @@ func loadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to process environment config: %w", err)
 	}
 	return cfg, nil
+}
+
+func (bf *BlockFetcher) processBlock(block ledger.Block) error {
+	if err := bf.firehose.OutputBlock(block); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (bf *BlockFetcher) resolveNetworkMagic() error {
@@ -54,7 +157,7 @@ func (bf *BlockFetcher) resolveNetworkMagic() error {
 	return nil
 }
 
-func (bf *BlockFetcher) printBlockInfo(block ledger.Block) {
+func (bf *BlockFetcher) PrintBlockInfo(block ledger.Block) {
 	switch v := block.(type) {
 	case *ledger.ByronEpochBoundaryBlock:
 		bf.logger.Printf(
@@ -201,7 +304,7 @@ func (bf *BlockFetcher) chainSyncRollForwardHandler(
 		}
 	}
 	if block != nil {
-		bf.printBlockInfo(block)
+		return bf.processBlock(block)
 	}
 	return nil
 }
@@ -219,6 +322,7 @@ func (bf *BlockFetcher) buildChainSyncConfig() chainsync.Config {
 	return chainsync.NewConfig(
 		chainsync.WithRollForwardFunc(bf.chainSyncRollForwardHandler),
 		chainsync.WithRollBackwardFunc(bf.chainSyncRollBackwardHandler),
+		chainsync.WithPipelineLimit(int(bf.config.PipelineLimit)),
 	)
 }
 
@@ -248,6 +352,7 @@ func (bf *BlockFetcher) connect(ctx context.Context) error {
 		ouroboros.WithNodeToNode(true),
 		ouroboros.WithKeepAlive(true),
 		ouroboros.WithChainSyncConfig(bf.buildChainSyncConfig()),
+		ouroboros.WithLogger(bf.slogger),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create ouroboros connection: %w", err)
@@ -256,7 +361,6 @@ func (bf *BlockFetcher) connect(ctx context.Context) error {
 	if err := conn.Dial("tcp", bf.config.Address); err != nil {
 		return fmt.Errorf("failed to dial connection to %s: %w", bf.config.Address, err)
 	}
-
 	bf.connection = conn
 	bf.logger.Printf("Connected to Cardano node at %s", bf.config.Address)
 	return nil
@@ -322,10 +426,13 @@ func main() {
 		logger.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	logger.Printf("Starting Block Fetcher with config: Address=%s, Network=%s, NetworkMagic=%d",
-		cfg.Address, cfg.Network, cfg.NetworkMagic)
+	logger.Printf("Starting Cardano Block Fetcher with Firehose instrumentation: Address=%s, Network=%s, NetworkMagic=%d, PipelineLimit=%d",
+		cfg.Address, cfg.Network, cfg.NetworkMagic, cfg.PipelineLimit)
 
 	fetcher := NewBlockFetcher(cfg, logger)
+
+	fetcher.firehose.Init()
+
 	if err := fetcher.Run(); err != nil && err != context.Canceled {
 		logger.Fatalf("Block fetcher failed: %v", err)
 	}
