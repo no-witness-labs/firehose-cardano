@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -22,16 +24,119 @@ type Config struct {
 	NetworkMagic uint32 `envconfig:"NETWORK_MAGIC" default:"0"`
 }
 
+type FirehoseInstrumentation struct {
+	blockTypeURL string
+	logger       *log.Logger
+}
+
+func NewFirehoseInstrumentation(blockTypeURL string, logger *log.Logger) *FirehoseInstrumentation {
+	return &FirehoseInstrumentation{
+		blockTypeURL: blockTypeURL,
+		logger:       logger,
+	}
+}
+
+func (f *FirehoseInstrumentation) Init() {
+	fmt.Printf("FIRE INIT 3.0 %s\n", f.blockTypeURL)
+}
+
+func (f *FirehoseInstrumentation) OutputBlock(block ledger.Block) error {
+	blockNumber := block.BlockNumber()
+	blockHash := block.Hash()
+
+	var parentHash string
+	if blockNumber > 0 {
+		parentHash = "unknown"
+	} else {
+		parentHash = "genesis"
+	}
+
+	timestamp := time.Now().UnixNano()
+
+	blockData, err := f.serializeBlock(block)
+	if err != nil {
+		return fmt.Errorf("failed to serialize block: %w", err)
+	}
+
+	encodedData := base64.StdEncoding.EncodeToString(blockData)
+
+	fireBlock := fmt.Sprintf(
+		"FIRE BLOCK %d %s %d %s %d %d %s",
+		blockNumber,
+		blockHash,
+		blockNumber-1,
+		parentHash,
+		blockNumber,
+		timestamp,
+		encodedData,
+	)
+
+	fmt.Println(fireBlock)
+	return nil
+}
+
+func (f *FirehoseInstrumentation) serializeBlock(block ledger.Block) ([]byte, error) {
+	transactions := make([]map[string]interface{}, 0)
+	for _, tx := range block.Transactions() {
+		txData := map[string]interface{}{
+			"hash": tx.Hash(),
+		}
+
+		if len(tx.Inputs()) > 0 {
+			inputs := make([]map[string]interface{}, 0)
+			for _, input := range tx.Inputs() {
+				inputs = append(inputs, map[string]interface{}{
+					"index": input.Index(),
+					"id":    input.Id(),
+				})
+			}
+			txData["inputs"] = inputs
+		}
+
+		if len(tx.Outputs()) > 0 {
+			outputs := make([]map[string]interface{}, 0)
+			for _, output := range tx.Outputs() {
+				outputData := map[string]interface{}{
+					"address": output.Address(),
+					"amount":  output.Amount(),
+				}
+				outputs = append(outputs, outputData)
+			}
+			txData["outputs"] = outputs
+		}
+
+		transactions = append(transactions, txData)
+	}
+
+	blockData := map[string]interface{}{
+		"header": map[string]interface{}{
+			"slot":   block.SlotNumber(),
+			"height": block.BlockNumber(),
+			"hash":   block.Hash(),
+		},
+		"body": map[string]interface{}{
+			"tx": transactions,
+		},
+		"timestamp": time.Now().UnixMilli(),
+	}
+
+	return json.Marshal(blockData)
+}
+
 type BlockFetcher struct {
 	config     *Config
 	connection *ouroboros.Connection
 	logger     *log.Logger
+	firehose   *FirehoseInstrumentation
 }
 
 func NewBlockFetcher(cfg *Config, logger *log.Logger) *BlockFetcher {
+	firehose := NewFirehoseInstrumentation("type.googleapis.com/sf.cardano.type.v1.Block", logger)
+
 	return &BlockFetcher{
-		config: cfg,
-		logger: logger,
+		config:   cfg,
+		logger:   logger,
+		firehose: firehose,
 	}
 }
 
@@ -41,6 +146,14 @@ func loadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to process environment config: %w", err)
 	}
 	return cfg, nil
+}
+
+func (bf *BlockFetcher) processBlock(block ledger.Block) error {
+	if err := bf.firehose.OutputBlock(block); err != nil {
+		return err
+	}
+	bf.printBlockInfo(block)
+	return nil
 }
 
 func (bf *BlockFetcher) resolveNetworkMagic() error {
@@ -201,7 +314,7 @@ func (bf *BlockFetcher) chainSyncRollForwardHandler(
 		}
 	}
 	if block != nil {
-		bf.printBlockInfo(block)
+		return bf.processBlock(block)
 	}
 	return nil
 }
@@ -322,10 +435,13 @@ func main() {
 		logger.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	logger.Printf("Starting Block Fetcher with config: Address=%s, Network=%s, NetworkMagic=%d",
+	logger.Printf("Starting Cardano Block Fetcher with Firehose instrumentation: Address=%s, Network=%s, NetworkMagic=%d",
 		cfg.Address, cfg.Network, cfg.NetworkMagic)
 
 	fetcher := NewBlockFetcher(cfg, logger)
+
+	fetcher.firehose.Init()
+
 	if err := fetcher.Run(); err != nil && err != context.Canceled {
 		logger.Fatalf("Block fetcher failed: %v", err)
 	}
