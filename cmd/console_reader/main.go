@@ -60,7 +60,7 @@ func main() {
 				ParentID:  blk.ParentId,
 				LibNum:    blk.LibNum,
 				Timestamp: blk.Timestamp,
-				PayloadLn: len(blk.PayloadRaw),
+				PayloadLn: len(blk.RawPayload),
 			}
 			b, _ := json.Marshal(out)
 			fmt.Println(string(b))

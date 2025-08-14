@@ -11,32 +11,35 @@ import (
 	"strings"
 	"sync"
 
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
-// FirehoseBlockLine represents a parsed FIRE BLOCK console line
-type FirehoseBlockLine struct {
+type FirehoseBlock struct {
 	Number     uint64
 	Id         string
 	ParentNum  uint64
 	ParentId   string
 	LibNum     uint64
 	Timestamp  uint64
-	PayloadRaw []byte // raw decoded bytes (expected CBOR of block)
-	RawLine    string // full original line
+	Block      *utxorpc.Block
+	RawPayload []byte
+	RawLine    string
 }
 
 type ConsoleReader struct {
-	out    chan *FirehoseBlockLine
-	errs   chan error
-	logger *zap.Logger
-	wg     sync.WaitGroup
-	cancel context.CancelFunc
+	out          chan *FirehoseBlock
+	errs         chan error
+	logger       *zap.Logger
+	wg           sync.WaitGroup
+	cancel       context.CancelFunc
+	blockTypeURL string
 }
 
 func NewConsoleReader(logger *zap.Logger) *ConsoleReader {
 	return &ConsoleReader{
-		out:    make(chan *FirehoseBlockLine, 100),
+		out:    make(chan *FirehoseBlock, 100),
 		errs:   make(chan error, 10),
 		logger: logger,
 	}
@@ -66,8 +69,21 @@ func (c *ConsoleReader) Start(parent context.Context, r io.Reader) {
 				return
 			}
 			line := scanner.Text()
+			if strings.HasPrefix(line, "FIRE INIT ") {
+				// FIRE INIT <version> <type_url>
+				parts := strings.Split(line, " ")
+				if len(parts) >= 4 { // FIRE INIT 3.0 type_url
+					c.blockTypeURL = parts[3]
+					if c.logger != nil {
+						c.logger.Info("firehose init", zap.String("version", parts[2]), zap.String("block_type_url", c.blockTypeURL))
+					}
+				} else {
+					c.sendErr(errors.New("invalid FIRE INIT line"))
+				}
+				continue
+			}
 			if strings.HasPrefix(line, "FIRE BLOCK ") {
-				blk, err := parseFireBlockLine(line)
+				blk, err := c.parseFireBlockLine(line)
 				if err != nil {
 					c.sendErr(fmt.Errorf("parse fire block line: %w", err))
 					continue
@@ -93,7 +109,7 @@ func (c *ConsoleReader) sendErr(err error) {
 }
 
 // Blocks returns a channel of parsed FIRE BLOCK lines
-func (c *ConsoleReader) Blocks() <-chan *FirehoseBlockLine { return c.out }
+func (c *ConsoleReader) Blocks() <-chan *FirehoseBlock { return c.out }
 
 // Errors returns a channel of asynchronous parse errors
 func (c *ConsoleReader) Errors() <-chan error { return c.errs }
@@ -108,11 +124,11 @@ func (c *ConsoleReader) Close() {
 	close(c.errs)
 }
 
-func parseFireBlockLine(line string) (*FirehoseBlockLine, error) {
+func (c *ConsoleReader) parseFireBlockLine(line string) (*FirehoseBlock, error) {
 	// Expected format:
 	// FIRE BLOCK <number> <id> <parentNum> <parentId> <libNum> <timestamp> <base64>
 	parts := strings.SplitN(line, " ", 9)
-	if len(parts) < 8 { // payload may be absent if instrumentation not sending it yet
+	if len(parts) < 8 {
 		return nil, errors.New("invalid FIRE BLOCK line (too few parts)")
 	}
 	if parts[0] != "FIRE" || parts[1] != "BLOCK" {
@@ -147,14 +163,20 @@ func parseFireBlockLine(line string) (*FirehoseBlockLine, error) {
 			return nil, fmt.Errorf("base64 decode: %w", err)
 		}
 	}
-	return &FirehoseBlockLine{
+	block := &utxorpc.Block{}
+	err = proto.Unmarshal(payload, block)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal block: %w", err)
+	}
+	return &FirehoseBlock{
 		Number:     number,
 		Id:         id,
 		ParentNum:  parentNum,
 		ParentId:   parentId,
 		LibNum:     libNum,
 		Timestamp:  timestamp,
-		PayloadRaw: payload,
+		Block:      block,
+		RawPayload: payload,
 		RawLine:    line,
 	}, nil
 }
