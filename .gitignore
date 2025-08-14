@@ -9,3 +9,6 @@
 
 firehose-data
 .env
+
+bin/*
+*.log

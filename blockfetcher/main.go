@@ -58,7 +58,7 @@ func NewFirehoseInstrumentation(blockTypeURL string, logger *log.Logger, slotCon
 }
 
 func (f *FirehoseInstrumentation) Init() {
-	f.logger.Printf("FIRE INIT 3.0 %s\n", f.blockTypeURL)
+	fmt.Printf("FIRE INIT 3.0 %s\n", f.blockTypeURL)
 }
 
 func (f *FirehoseInstrumentation) OutputBlock(block ledger.Block) error {
@@ -86,7 +86,7 @@ func (f *FirehoseInstrumentation) OutputBlock(block ledger.Block) error {
 		timestamp,    // Block timestamp (nanoseconds)
 		encodedData,  // Base64 encoded block payload
 	)
-	f.logger.Println(fireBlock)
+	fmt.Println(fireBlock)
 	return nil
 }
 
