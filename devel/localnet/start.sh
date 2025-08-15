@@ -27,9 +27,9 @@ if [[ $CLEAN -eq 1 ]]; then
   mkdir -p "$BIN_DIR" "$LOG_DIR"
 fi
 
-echo "[build] Compiling blockfetcher and console-reader"
+echo "[build] Compiling blockfetcher and firecardano"
 go build -o "$BIN_DIR/blockfetcher" ./blockfetcher
-go build -o "$BIN_DIR/console-reader" ./cmd/console_reader
+go build -o "$BIN_DIR/firecardano" ./cmd/firecardano
 
 echo "[env] CARDANO_NODE_ADDRESS=$CARDANO_NODE_ADDRESS"
 echo "[env] CARDANO_NETWORK=$CARDANO_NETWORK"
@@ -51,7 +51,7 @@ echo "[run] Launching pipeline"
   BLOCK_FETCH_ADDRESS="$CARDANO_NODE_ADDRESS" \
   BLOCK_FETCH_NETWORK="$CARDANO_NETWORK" \
   BLOCK_FETCH_PIPELINE_LIMIT="$PIPELINE_LIMIT" \
-  "$BIN_DIR/blockfetcher" 2>&1 | tee "$BLOCK_LOG" | "$BIN_DIR/console-reader" 2>&1 | tee "$READER_LOG"
+  "$BIN_DIR/blockfetcher" 2>&1 | tee "$BLOCK_LOG" | "$BIN_DIR/firecardano" console-reader 2>&1 | tee "$READER_LOG"
 ) &
 PID=$!
 

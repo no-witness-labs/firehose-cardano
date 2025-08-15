@@ -17,8 +17,11 @@ var (
 	}
 )
 
-func Main() {
+func init() {
 	cobra.OnInitialize(func() {
 		allFlags = flags.AutoBind(RootCmd, "firecardano")
 	})
+	
+	// Add subcommands
+	RootCmd.AddCommand(consoleReaderCmd)
 }

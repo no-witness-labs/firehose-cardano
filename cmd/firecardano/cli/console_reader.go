@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/no-witness-labs/firehose-cardano/codec"
+	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
 
@@ -24,7 +25,14 @@ type jsonBlock struct {
 	PayloadLn int    `json:"payload_len"`
 }
 
-func main() {
+var consoleReaderCmd = &cobra.Command{
+	Use:   "console-reader",
+	Short: "Read and parse Cardano blockchain data from console input",
+	Long:  "Reads FIRE BLOCK lines from stdin and outputs parsed block information as JSON",
+	RunE:  consoleReaderE,
+}
+
+func consoleReaderE(cmd *cobra.Command, args []string) error {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
@@ -51,7 +59,7 @@ func main() {
 		case blk, ok := <-reader.Blocks():
 			if !ok {
 				logger.Info("blocks channel closed, exiting")
-				return
+				return nil
 			}
 			out := jsonBlock{
 				Number:    blk.Number,
@@ -73,7 +81,7 @@ func main() {
 		case <-ctx.Done():
 			logger.Info("context done, shutting down")
 			reader.Close()
-			return
+			return nil
 		}
 	}
 }

@@ -49,15 +49,15 @@ else
   echo "[stop] no pid file ($PID_FILE)"
 fi
 
-# 3. Final safety cleanup of remaining blockfetcher/console-reader
-echo "[stop] phase 3: safety cleanup for lingering blockfetcher/console-reader"
-for pat in "bin/blockfetcher" "bin/console-reader"; do
+# 3. Final safety cleanup of remaining blockfetcher/firecardano
+echo "[stop] phase 3: safety cleanup for lingering blockfetcher/firecardano"
+for pat in "bin/blockfetcher" "bin/firecardano"; do
   while read -r p; do
     [[ -n "$p" ]] && { echo "[stop] TERM leftover pid=$p ($pat)"; kill -TERM "$p" 2>/dev/null || true; }
   done < <(pgrep -f "$pat" 2>/dev/null || true)
 done
 sleep 0.4
-for pat in "bin/blockfetcher" "bin/console-reader"; do
+for pat in "bin/blockfetcher" "bin/firecardano"; do
   while read -r p; do
     [[ -n "$p" ]] && { echo "[stop] KILL leftover pid=$p ($pat)"; kill -KILL "$p" 2>/dev/null || true; }
   done < <(pgrep -f "$pat" 2>/dev/null || true)

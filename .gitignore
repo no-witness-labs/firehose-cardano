@@ -12,3 +12,4 @@ firehose-data
 
 bin/*
 *.log
+*.pid

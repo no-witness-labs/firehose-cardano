@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -22,7 +23,11 @@ func init() {
 }
 
 func main() {
-	cli.Main()
+	if err := cli.RootCmd.Execute(); err != nil {
+		// Use fmt.Printf instead of logger since we don't want to set up logging in main
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func versionString() string {
