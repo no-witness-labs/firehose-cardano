@@ -426,10 +426,6 @@ var blockfetcherCmd = &cobra.Command{
 	RunE:  blockfetcherE,
 }
 
-func init() {
-	RootCmd.AddCommand(blockfetcherCmd)
-}
-
 func blockfetcherE(cmd *cobra.Command, args []string) error {
 	logger := log.New(os.Stdout, "[BlockFetcher] ", log.LstdFlags|log.Lshortfile)
 

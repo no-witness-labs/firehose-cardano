@@ -1,25 +1,34 @@
-# Makefile for Cardano Block Fetcher
+# Makefile for Firehose Cardano
 
-.PHONY: build run clean test lint fmt
+.PHONY: build run clean test lint fmt run-blockfetcher run-console-reader run-mainnet run-testnet
 
-# Build the block fetcher
+# Build the firecardano CLI
 build:
-	@echo "Building block fetcher..."
-	cd blockfetcher && go build -o ../bin/blockfetcher ./main.go
+	@echo "Building firecardano CLI..."
+	go build -o bin/firecardano ./cmd/firecardano
 
-# Run the block fetcher
-run: build
-	@echo "Running block fetcher..."
-	./bin/blockfetcher
+# Run the blockfetcher subcommand
+run-blockfetcher: build
+	@echo "Running blockfetcher..."
+	./bin/firecardano blockfetcher
 
-# Run with environment variables
-run-mainnet:
-	@echo "Running block fetcher on mainnet..."
-	BLOCK_FETCH_NETWORK=mainnet BLOCK_FETCH_ADDRESS=backbone.cardano.iog.io:3001 ./bin/blockfetcher
+# Run the console-reader subcommand
+run-console-reader: build
+	@echo "Running console-reader..."
+	./bin/firecardano console-reader
 
-run-testnet:
-	@echo "Running block fetcher on testnet..."
-	BLOCK_FETCH_NETWORK=testnet BLOCK_FETCH_ADDRESS=backbone.cardano-testnet.iohkdev.io:3001 ./bin/blockfetcher
+# Legacy target for backward compatibility
+run: run-blockfetcher
+
+# Run blockfetcher with mainnet environment variables
+run-mainnet: build
+	@echo "Running blockfetcher on mainnet..."
+	BLOCK_FETCH_NETWORK=mainnet BLOCK_FETCH_ADDRESS=backbone.cardano.iog.io:3001 ./bin/firecardano blockfetcher
+
+# Run blockfetcher with testnet environment variables
+run-testnet: build
+	@echo "Running blockfetcher on testnet..."
+	BLOCK_FETCH_NETWORK=testnet BLOCK_FETCH_ADDRESS=backbone.cardano-testnet.iohkdev.io:3001 ./bin/firecardano blockfetcher
 
 # Clean build artifacts
 clean:
