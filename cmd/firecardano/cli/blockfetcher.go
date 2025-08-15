@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -16,10 +16,11 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/kelseyhightower/envconfig"
+	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/proto"
 )
 
-type Config struct {
+type BlockFetcherConfig struct {
 	Address       string `envconfig:"ADDRESS" default:"backbone.cardano.iog.io:3001"`
 	Network       string `envconfig:"NETWORK" default:"mainnet"`
 	NetworkMagic  uint32 `envconfig:"NETWORK_MAGIC" default:"0"`
@@ -103,7 +104,7 @@ func (f *FirehoseInstrumentation) serializeBlock(block ledger.Block) ([]byte, er
 }
 
 type BlockFetcher struct {
-	config     *Config
+	config     *BlockFetcherConfig
 	connection *ouroboros.Connection
 	logger     *log.Logger
 	slogger    *slog.Logger
@@ -111,7 +112,7 @@ type BlockFetcher struct {
 	slotConfig SlotConfig
 }
 
-func NewBlockFetcher(cfg *Config, logger *log.Logger) *BlockFetcher {
+func NewBlockFetcher(cfg *BlockFetcherConfig, logger *log.Logger) *BlockFetcher {
 	slotConfig, exists := SlotConfigNetwork[cfg.Network]
 	if !exists {
 		slotConfig = SlotConfigNetwork["mainnet"]
@@ -131,8 +132,8 @@ func NewBlockFetcher(cfg *Config, logger *log.Logger) *BlockFetcher {
 	}
 }
 
-func loadConfig() (*Config, error) {
-	cfg := &Config{}
+func loadConfig() (*BlockFetcherConfig, error) {
+	cfg := &BlockFetcherConfig{}
 	if err := envconfig.Process("BLOCK_FETCH", cfg); err != nil {
 		return nil, fmt.Errorf("failed to process environment config: %w", err)
 	}
@@ -418,12 +419,23 @@ func (bf *BlockFetcher) Run() error {
 	return bf.start(ctx)
 }
 
-func main() {
+var blockfetcherCmd = &cobra.Command{
+	Use:   "blockfetcher",
+	Short: "Fetch blocks from Cardano network and output as Firehose format",
+	Long:  "Connects to a Cardano node and fetches blocks, outputting them in Firehose instrumentation format",
+	RunE:  blockfetcherE,
+}
+
+func init() {
+	RootCmd.AddCommand(blockfetcherCmd)
+}
+
+func blockfetcherE(cmd *cobra.Command, args []string) error {
 	logger := log.New(os.Stdout, "[BlockFetcher] ", log.LstdFlags|log.Lshortfile)
 
 	cfg, err := loadConfig()
 	if err != nil {
-		logger.Fatalf("Failed to load configuration: %v", err)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
 	logger.Printf("Starting Cardano Block Fetcher with Firehose instrumentation: Address=%s, Network=%s, NetworkMagic=%d, PipelineLimit=%d",
@@ -434,8 +446,9 @@ func main() {
 	fetcher.firehose.Init()
 
 	if err := fetcher.Run(); err != nil && err != context.Canceled {
-		logger.Fatalf("Block fetcher failed: %v", err)
+		return fmt.Errorf("block fetcher failed: %w", err)
 	}
 
 	logger.Println("Block fetcher shutdown complete")
+	return nil
 }
