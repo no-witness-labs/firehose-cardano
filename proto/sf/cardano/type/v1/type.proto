@@ -2,7 +2,9 @@
 // https://github.com/utxorpc/spec/blob/main/proto/utxorpc/v1alpha/cardano/cardano.proto
 syntax = "proto3";
 
-package utxorpc.v1alpha.cardano;
+package sf.cardano.type.v1;
+
+option go_package = "github.com/no-witness-labs/firehose-cardano/types/pb/sf/cardano/type/v1;pbcardano";
 
 // Purpose of the redeemer in a transaction.
 enum RedeemerPurpose {

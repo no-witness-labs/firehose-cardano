@@ -1,6 +1,12 @@
 # Makefile for Firehose Cardano
 
-.PHONY: build run clean test lint fmt run-blockfetcher run-console-reader run-mainnet run-testnet
+.PHONY: build run clean test lint fmt run-blockfetcher run-console-reader run-mainnet run-testnet gen-proto
+
+# Generate protobuf Go files
+gen-proto:
+	@echo "Generating protobuf Go files..."
+	@mkdir -p types/pb
+	protoc --proto_path=proto --go_out=types/pb --go_opt=paths=source_relative proto/sf/cardano/type/v1/type.proto
 
 # Build the firecardano CLI
 build:
