@@ -1,29 +1,19 @@
 package cli
 
 import (
+	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/no-witness-labs/firehose-cardano/codec"
 	"github.com/spf13/cobra"
+	firecore "github.com/streamingfast/firehose-core"
+	"github.com/streamingfast/logging"
 	"go.uber.org/zap"
 )
-
-// Simple output structure for pretty JSON printing
-type jsonBlock struct {
-	Number    uint64 `json:"number"`
-	ID        string `json:"id"`
-	ParentNum uint64 `json:"parent_num"`
-	ParentID  string `json:"parent_id"`
-	LibNum    uint64 `json:"lib_num"`
-	Timestamp uint64 `json:"timestamp"`
-	PayloadLn int    `json:"payload_len"`
-}
 
 var consoleReaderCmd = &cobra.Command{
 	Use:   "console-reader",
@@ -33,8 +23,13 @@ var consoleReaderCmd = &cobra.Command{
 }
 
 func consoleReaderE(cmd *cobra.Command, args []string) error {
-	logger, _ := zap.NewProduction()
+	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
+	
+	logger.Info("Starting console reader")
+
+	// Create a dummy tracer for firehose-core (it expects one)
+	_, tracer := logging.PackageLogger("console-reader", "github.com/no-witness-labs/firehose-cardano")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -47,40 +42,58 @@ func consoleReaderE(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	reader := codec.NewConsoleReader(logger)
-	reader.Start(ctx, os.Stdin)
+	lines := make(chan string, 1000)
+
+	consoleReader, err := firecore.NewConsoleReader(lines, nil, logger, tracer)
+	if err != nil {
+		return fmt.Errorf("creating console reader: %w", err)
+	}
+
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			select {
+			case lines <- scanner.Text():
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	logger.Info("console reader started, waiting for FIRE BLOCK lines on stdin")
 	printTicker := time.NewTicker(30 * time.Second)
 	defer printTicker.Stop()
 
+	// Process blocks from console reader
+	go func() {
+		for {
+			block, err := consoleReader.ReadBlock()
+			// consoleReader.printStats()
+			if err != nil {
+				logger.Error("error reading block", zap.Error(err))
+				return
+			}
+			if block != nil {
+				logger.Info("received block",
+					zap.Uint64("number", block.Number),
+					zap.String("id", block.Id),
+					zap.Uint64("parent_number", block.ParentNum),
+					zap.String("parent_id", block.ParentId),
+				)
+			}
+		}
+	}()
+
 	for {
 		select {
-		case blk, ok := <-reader.Blocks():
-			if !ok {
-				logger.Info("blocks channel closed, exiting")
-				return nil
-			}
-			out := jsonBlock{
-				Number:    blk.Number,
-				ID:        blk.Id,
-				ParentNum: blk.ParentNum,
-				ParentID:  blk.ParentId,
-				LibNum:    blk.LibNum,
-				Timestamp: blk.Timestamp,
-				PayloadLn: len(blk.RawPayload),
-			}
-			b, _ := json.Marshal(out)
-			fmt.Println(string(b))
-		case err := <-reader.Errors():
-			if err != nil {
-				logger.Warn("parse error", zap.Error(err))
-			}
 		case <-printTicker.C:
 			logger.Info("still running - waiting for more blocks")
 		case <-ctx.Done():
 			logger.Info("context done, shutting down")
-			reader.Close()
+			return nil
+		case <-consoleReader.Done():
+			logger.Info("console reader done, exiting")
 			return nil
 		}
 	}
