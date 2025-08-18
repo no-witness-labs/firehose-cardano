@@ -1,0 +1,17 @@
+[package]
+name = "cardano"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "cardano"
+crate-type = ["cdylib"]
+
+[dependencies]
+substreams = "0.5"
+prost = "0.11"
+prost-derive = "0.11"
+prost-types = "0.11"
+
+[build-dependencies]
+prost-build = "0.11"

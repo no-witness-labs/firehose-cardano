@@ -1,0 +1,29 @@
+specVersion: v0.1.0
+package:
+  name: cardano
+  version: v0.1.0
+  url: https://github.com/no-witness-labs/firehose-cardano
+  description: Cardano Substreams package for extracting and transforming on-chain data
+
+network: cardano
+
+protobuf:
+  files:
+    - sf/cardano/type/v1/type.proto
+  importPaths:
+    - ../proto
+
+binaries:
+  default:
+    type: wasm/rust-v1
+    file: ./target/wasm32-unknown-unknown/release/cardano.wasm
+
+modules:
+  - name: map_blocks
+    kind: map
+    doc: |
+      Maps Cardano blocks to their basic information.
+    inputs:
+      - source: sf.substreams.v1.Blocks
+    output:
+      type: proto:sf.cardano.type.v1.Block
