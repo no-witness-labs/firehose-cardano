@@ -9,9 +9,7 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/spf13/cobra v1.9.1
 	github.com/streamingfast/bstream v0.0.2-0.20250416133616-23bdc92e0e9c
-	github.com/streamingfast/dlauncher v0.0.0-20230607184145-76399faad89e
 	github.com/streamingfast/firehose-core v1.10.2
-	github.com/streamingfast/logging v0.0.0-20250729153644-6ddeb9abb112
 	google.golang.org/protobuf v1.36.6
 )
 
@@ -163,6 +161,7 @@ require (
 	github.com/streamingfast/dstore v0.1.1-0.20250609173504-95368d3441ee // indirect
 	github.com/streamingfast/dtracing v0.0.0-20220305214756-b5c0e8699839 // indirect
 	github.com/streamingfast/firehose-networks v0.2.0 // indirect
+	github.com/streamingfast/logging v0.0.0-20250729153644-6ddeb9abb112 // indirect
 	github.com/streamingfast/opaque v0.0.0-20210811180740-0c01d37ea308 // indirect
 	github.com/streamingfast/payment-gateway v0.0.0-20250606152645-3614ea533458 // indirect
 	github.com/streamingfast/pbgo v0.0.6-0.20250114182320-0b43084f4000 // indirect
