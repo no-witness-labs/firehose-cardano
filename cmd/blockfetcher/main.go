@@ -1,9 +1,8 @@
-package cli
+package main
 
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
@@ -16,7 +15,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/kelseyhightower/envconfig"
-	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -149,6 +147,7 @@ func (bf *BlockFetcher) processBlock(block ledger.Block) error {
 
 func (bf *BlockFetcher) resolveNetworkMagic() error {
 	if bf.config.NetworkMagic == 0 {
+		fmt.Println("Resolving network magic...", bf.config.Network)
 		network, ok := ouroboros.NetworkByName(bf.config.Network)
 		if !ok {
 			return fmt.Errorf("invalid network specified: %s", bf.config.Network)
@@ -156,130 +155,6 @@ func (bf *BlockFetcher) resolveNetworkMagic() error {
 		bf.config.NetworkMagic = network.NetworkMagic
 	}
 	return nil
-}
-
-func (bf *BlockFetcher) PrintBlockInfo(block ledger.Block) {
-	switch v := block.(type) {
-	case *ledger.ByronEpochBoundaryBlock:
-		bf.logger.Printf(
-			"Block: era = Byron (EBB), epoch = %d, id = %s\n",
-			v.BlockHeader.ConsensusData.Epoch,
-			v.Hash(),
-		)
-	case *ledger.ByronMainBlock:
-		bf.logger.Printf(
-			"Block: era = Byron, epoch = %d, slot = %d, id = %s\n",
-			v.BlockHeader.ConsensusData.SlotId.Epoch,
-			v.SlotNumber(),
-			v.Hash(),
-		)
-	case ledger.Block:
-		bf.logger.Printf(
-			"Block: era = %s, slot = %d, block_no = %d, id = %s\n",
-			v.Era().Name,
-			v.SlotNumber(),
-			v.BlockNumber(),
-			v.Hash(),
-		)
-	}
-
-	bf.logger.Printf(
-		"Minted by: %s (%s)\n",
-		block.IssuerVkey().PoolId(),
-		block.IssuerVkey().Hash(),
-	)
-	bf.logger.Println("Transactions:")
-	for _, tx := range block.Transactions() {
-		bf.logger.Printf("- Hash: %s\n", tx.Hash())
-		if tx.Metadata() != nil {
-			bf.logger.Printf(
-				"  Metadata: %#v (%x)\n",
-				tx.Metadata().Value(),
-				tx.Metadata().Cbor(),
-			)
-		}
-		if len(tx.Inputs()) > 0 {
-			bf.logger.Println("  Inputs:")
-			for _, input := range tx.Inputs() {
-				bf.logger.Printf(
-					"  - index = %d, id = %s\n",
-					input.Index(),
-					input.Id(),
-				)
-			}
-		}
-		if len(tx.Outputs()) > 0 {
-			bf.logger.Println("  Outputs:")
-			for _, output := range tx.Outputs() {
-				bf.logger.Printf(
-					"  - address = %s, amount = %d, cbor (hex) = %x\n",
-					output.Address(),
-					output.Amount(),
-					output.Cbor(),
-				)
-				assets := output.Assets()
-				if assets != nil {
-					bf.logger.Println("  - Assets:")
-					for _, policyId := range assets.Policies() {
-						for _, assetName := range assets.Assets(policyId) {
-							bf.logger.Printf(
-								"    - Asset: name = %s, amount = %d, policy = %s\n",
-								assetName,
-								assets.Asset(policyId, assetName),
-								policyId,
-							)
-						}
-					}
-				}
-				datum := output.Datum()
-				if datum != nil {
-					jsonData, err := json.Marshal(datum)
-					if err != nil {
-						bf.logger.Printf(
-							"  - Datum: (hex) %x\n",
-							datum.Cbor(),
-						)
-					} else {
-						bf.logger.Printf(
-							"  - Datum: %s\n",
-							jsonData,
-						)
-					}
-				}
-			}
-		}
-		if len(tx.Collateral()) > 0 {
-			bf.logger.Println("  Collateral inputs:")
-			for _, input := range tx.Collateral() {
-				bf.logger.Printf(
-					"  - index = %d, id = %s\n",
-					input.Index(),
-					input.Id(),
-				)
-			}
-		}
-		if len(tx.Certificates()) > 0 {
-			bf.logger.Println("  Certificates:")
-			for _, cert := range tx.Certificates() {
-				bf.logger.Printf("  - %T\n", cert)
-			}
-		}
-		if tx.AssetMint() != nil {
-			bf.logger.Println("  Asset mints:")
-			assets := tx.AssetMint()
-			for _, policyId := range assets.Policies() {
-				for _, assetName := range assets.Assets(policyId) {
-					bf.logger.Printf(
-						"    - Asset: name = %s, amount = %d, policy = %s\n",
-						assetName,
-						assets.Asset(policyId, assetName),
-						policyId,
-					)
-				}
-			}
-		}
-	}
-	bf.logger.Println()
 }
 
 func (bf *BlockFetcher) chainSyncRollForwardHandler(
@@ -299,14 +174,20 @@ func (bf *BlockFetcher) chainSyncRollForwardHandler(
 		if bf.connection == nil {
 			return fmt.Errorf("ouroboros connection is nil")
 		}
-		block, err = bf.connection.BlockFetch().Client.GetBlock(common.NewPoint(blockSlot, blockHash))
+		block, err = bf.connection.BlockFetch().Client.GetBlock(
+			common.NewPoint(blockSlot, blockHash),
+		)
 		if err != nil {
 			return fmt.Errorf("failed to fetch block: %w", err)
 		}
+	default:
+		return fmt.Errorf("unexpected block data type: %T", blockData)
 	}
-	if block != nil {
-		return bf.processBlock(block)
+
+	if err := bf.processBlock(block); err != nil {
+		return fmt.Errorf("failed to process block: %w", err)
 	}
+
 	return nil
 }
 
@@ -315,7 +196,7 @@ func (bf *BlockFetcher) chainSyncRollBackwardHandler(
 	point common.Point,
 	tip chainsync.Tip,
 ) error {
-	bf.logger.Printf("roll backward: point = %#v, tip = %#v\n", point, tip)
+	bf.logger.Printf("ChainSync roll backward: point = %#v, tip = %#v", point, tip)
 	return nil
 }
 
@@ -329,8 +210,10 @@ func (bf *BlockFetcher) buildChainSyncConfig() chainsync.Config {
 
 func (bf *BlockFetcher) connect(ctx context.Context) error {
 	if err := bf.resolveNetworkMagic(); err != nil {
-		return fmt.Errorf("failed to resolve network magic: %w", err)
+		return err
 	}
+
+	bf.logger.Printf("Connecting to %s (network magic: %d)", bf.config.Address, bf.config.NetworkMagic)
 
 	errorChan := make(chan error, 1)
 
@@ -356,18 +239,25 @@ func (bf *BlockFetcher) connect(ctx context.Context) error {
 		ouroboros.WithLogger(bf.slogger),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create ouroboros connection: %w", err)
+		return fmt.Errorf("failed to create connection: %w", err)
 	}
 
 	if err := conn.Dial("tcp", bf.config.Address); err != nil {
-		return fmt.Errorf("failed to dial connection to %s: %w", bf.config.Address, err)
+		return fmt.Errorf("failed to dial %s: %w", bf.config.Address, err)
 	}
+
 	bf.connection = conn
-	bf.logger.Printf("Connected to Cardano node at %s", bf.config.Address)
+	bf.logger.Printf("Successfully connected to %s", bf.config.Address)
 	return nil
 }
 
 func (bf *BlockFetcher) start(ctx context.Context) error {
+	if bf.connection == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	bf.logger.Println("Starting chain sync...")
+
 	tip, err := bf.connection.ChainSync().Client.GetCurrentTip()
 	if err != nil {
 		return fmt.Errorf("failed to get current tip: %w", err)
@@ -376,20 +266,25 @@ func (bf *BlockFetcher) start(ctx context.Context) error {
 	bf.logger.Printf("Starting sync from tip: %#v", tip)
 
 	point := tip.Point
+	// Start chain sync from tip
 	if err := bf.connection.ChainSync().Client.Sync([]common.Point{point}); err != nil {
-		return fmt.Errorf("failed to start sync: %w", err)
+		return fmt.Errorf("chain sync failed: %w", err)
 	}
 
+	// Wait for context cancellation (shutdown signal)
 	<-ctx.Done()
+	bf.logger.Println("Context cancelled, stopping chain sync...")
+
 	return ctx.Err()
 }
 
 func (bf *BlockFetcher) close() error {
 	if bf.connection != nil {
+		bf.logger.Println("Closing connection...")
 		if err := bf.connection.Close(); err != nil {
 			return fmt.Errorf("failed to close connection: %w", err)
 		}
-		bf.logger.Println("Connection closed successfully")
+		bf.connection = nil
 	}
 	return nil
 }
@@ -419,22 +314,15 @@ func (bf *BlockFetcher) Run() error {
 	return bf.start(ctx)
 }
 
-var blockfetcherCmd = &cobra.Command{
-	Use:   "blockfetcher",
-	Short: "Fetch blocks from Cardano network and output as Firehose format",
-	Long:  "Connects to a Cardano node and fetches blocks, outputting them in Firehose instrumentation format",
-	RunE:  blockfetcherE,
-}
-
-func blockfetcherE(cmd *cobra.Command, args []string) error {
-	logger := log.New(os.Stdout, "[BlockFetcher] ", log.LstdFlags|log.Lshortfile)
+func main() {
+	logger := log.New(os.Stderr, "[BlockFetcher] ", log.LstdFlags|log.Lshortfile)
 
 	cfg, err := loadConfig()
 	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
+		logger.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	logger.Printf("Starting Cardano Block Fetcher with Firehose instrumentation: Address=%s, Network=%s, NetworkMagic=%d, PipelineLimit=%d",
+	logger.Printf("Starting Cardano Block Fetcher: Address=%s, Network=%s, NetworkMagic=%d, PipelineLimit=%d",
 		cfg.Address, cfg.Network, cfg.NetworkMagic, cfg.PipelineLimit)
 
 	fetcher := NewBlockFetcher(cfg, logger)
@@ -442,9 +330,8 @@ func blockfetcherE(cmd *cobra.Command, args []string) error {
 	fetcher.firehose.Init()
 
 	if err := fetcher.Run(); err != nil && err != context.Canceled {
-		return fmt.Errorf("block fetcher failed: %w", err)
+		logger.Fatalf("Block fetcher failed: %v", err)
 	}
 
 	logger.Println("Block fetcher shutdown complete")
-	return nil
 }

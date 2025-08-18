@@ -1,0 +1,8 @@
+start:
+  args:
+    - reader-node-stdin
+    - firehose
+  flags:
+    data-dir: ./firehose-data
+    log-format: text
+    log-verbosity: 1
