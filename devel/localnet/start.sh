@@ -51,6 +51,7 @@ echo "[run] Launching pipeline"
   BLOCK_FETCH_NETWORK="$CARDANO_NETWORK" \
   BLOCK_FETCH_PIPELINE_LIMIT="$PIPELINE_LIMIT" \
   "$BIN_DIR/firecardano" blockfetcher 2>&1 | tee "$BLOCK_LOG" | "$BIN_DIR/firecardano" console-reader 2>&1 | tee "$READER_LOG"
+  # "$BIN_DIR/firecardano" blockfetcher 2>&1 | tee "$BLOCK_LOG"
 ) &
 PID=$!
 
