@@ -1,0 +1,20 @@
+# Cardano Block Fetcher Configuration - Preview Testnet
+# This file configures the blockfetcher for Cardano preview testnet
+
+# Cardano preview testnet node address
+address = "backbone.cardano-preview.iog.io:3001"
+
+# Cardano network to connect to
+network = "preview"
+
+# Network magic number for preview testnet
+network_magic = 2
+
+# Pipeline limit for block fetching
+pipeline_limit = 10
+
+# Starting slot number for block fetching (0 means start from current tip)
+start_slot = 0
+
+# Starting block hash for block fetching (empty means use current tip)
+start_hash = ""

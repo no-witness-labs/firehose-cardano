@@ -21,13 +21,14 @@ Run (will build then start):
 ./devel/localnet/start.sh
 ```
 
-Custom environment:
+Custom configuration:
 
 ```bash
-CARDANO_NODE_ADDRESS=backbone.cardano.iog.io:3001 \
-CARDANO_NETWORK=mainnet \
-PIPELINE_LIMIT=15 \
-./devel/localnet/start.sh
+# Use a custom config file
+CONFIG_FILE=blockfetcher-testnet.toml ./devel/localnet/start.sh
+
+# Or create your own config file
+CONFIG_FILE=my-custom-config.toml ./devel/localnet/start.sh
 ```
 
 Logs:

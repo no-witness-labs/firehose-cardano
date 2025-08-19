@@ -60,14 +60,14 @@ This will create the `bin/firecardano` binary.
 Fetch blocks from a Cardano network:
 
 ```bash
-# Basic usage
-./bin/firecardano blockfetcher
+# Basic usage (uses default config)
+./bin/blockfetcher
 
-# With environment variables
-BLOCK_FETCH_NETWORK=mainnet \
-BLOCK_FETCH_ADDRESS=backbone.cardano.iog.io:3001 \
-BLOCK_FETCH_PIPELINE_LIMIT=10 \
-./bin/firecardano blockfetcher
+# With TOML configuration file
+./bin/blockfetcher -config blockfetcher.toml
+
+# For testnet
+./bin/blockfetcher -config blockfetcher-testnet.toml
 ```
 
 #### Console Reader
@@ -126,14 +126,31 @@ grpcurl -plaintext localhost:10010 list
 }
 ```
 
-### Environment Variables
+### Configuration
 
-The blockfetcher subcommand supports these environment variables:
+The blockfetcher supports configuration via TOML files. Create a `blockfetcher.toml` file with:
 
-- `BLOCK_FETCH_ADDRESS`: Cardano node address (default: `backbone.cardano.iog.io:3001`)
-- `BLOCK_FETCH_NETWORK`: Network name - `mainnet`, `preview`, or `preprod` (default: `mainnet`)
-- `BLOCK_FETCH_NETWORK_MAGIC`: Network magic number (default: auto-detect from network)
-- `BLOCK_FETCH_PIPELINE_LIMIT`: Pipeline limit for block fetching (default: `10`)
+```toml
+# Cardano node address to connect to
+address = "backbone.cardano.iog.io:3001"
+
+# Network: "mainnet", "preview", or "preprod"
+network = "mainnet"
+
+# Network magic (0 for auto-detect)
+network_magic = 0
+
+# Pipeline limit for concurrent requests
+pipeline_limit = 10
+
+# Optional: starting slot and hash
+start_slot = 0
+start_hash = ""
+```
+
+Example configurations are provided:
+- `blockfetcher.toml` - Mainnet configuration
+- `blockfetcher-testnet.toml` - Preview testnet configuration
 
 ### Makefile Targets
 
@@ -167,8 +184,11 @@ make clean
 Use the development scripts for local testing:
 
 ```bash
-# Build and run the pipeline
+# Build and run the pipeline (uses blockfetcher.toml)
 ./devel/localnet/start.sh
+
+# Run with custom configuration
+CONFIG_FILE=blockfetcher-testnet.toml ./devel/localnet/start.sh
 
 # Build only (no execution)
 ./devel/localnet/start.sh -b

@@ -26,15 +26,15 @@ run-console-reader: build
 # Legacy target for backward compatibility
 run: run-blockfetcher
 
-# Run blockfetcher with mainnet environment variables
+# Run blockfetcher with mainnet configuration
 run-mainnet: build
 	@echo "Running blockfetcher on mainnet..."
-	BLOCK_FETCH_NETWORK=mainnet BLOCK_FETCH_ADDRESS=backbone.cardano.iog.io:3001 ./bin/firecardano blockfetcher
+	./bin/blockfetcher -config blockfetcher.toml
 
-# Run blockfetcher with testnet environment variables
+# Run blockfetcher with testnet configuration
 run-testnet: build
 	@echo "Running blockfetcher on testnet..."
-	BLOCK_FETCH_NETWORK=testnet BLOCK_FETCH_ADDRESS=backbone.cardano-testnet.iohkdev.io:3001 ./bin/firecardano blockfetcher
+	./bin/blockfetcher -config blockfetcher-testnet.toml
 
 # Clean build artifacts
 clean:
