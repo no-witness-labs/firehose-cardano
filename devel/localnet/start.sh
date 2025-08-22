@@ -7,9 +7,7 @@ BIN_DIR="$REPO_DIR/bin"
 LOG_DIR="$REPO_DIR/devel/localnet/logs"
 mkdir -p "$BIN_DIR" "$LOG_DIR"
 
-CARDANO_NODE_ADDRESS=${CARDANO_NODE_ADDRESS:-"backbone.cardano.iog.io:3001"}
-CARDANO_NETWORK=${CARDANO_NETWORK:-"mainnet"}
-PIPELINE_LIMIT=${PIPELINE_LIMIT:-10}
+CONFIG_FILE=${CONFIG_FILE:-"blockfetcher.toml"}
 
 BUILD_ONLY=0
 CLEAN=0
@@ -31,9 +29,7 @@ echo "[build] Compiling firecardano services"
 go build -o "$BIN_DIR/firecardano" ./cmd/firecardano
 go build -o "$BIN_DIR/blockfetcher" ./cmd/blockfetcher
 
-echo "[env] CARDANO_NODE_ADDRESS=$CARDANO_NODE_ADDRESS"
-echo "[env] CARDANO_NETWORK=$CARDANO_NETWORK"
-echo "[env] PIPELINE_LIMIT=$PIPELINE_LIMIT"
+echo "[env] CONFIG_FILE=$CONFIG_FILE"
 
 if [[ $BUILD_ONLY -eq 1 ]]; then
   echo "[exit] Build only requested (-b)"
@@ -48,11 +44,8 @@ FIREHOSE_LOG="$LOG_DIR/firehose.log"
 
 echo "[run] Launching pipeline"
 (
-  BLOCK_FETCH_ADDRESS="$CARDANO_NODE_ADDRESS" \
-  BLOCK_FETCH_NETWORK="$CARDANO_NETWORK" \
-  BLOCK_FETCH_PIPELINE_LIMIT="$PIPELINE_LIMIT" \
-  "$BIN_DIR/blockfetcher" 2>&1 | tee "$BLOCK_LOG" | "$BIN_DIR/firecardano" start 2>&1 | tee "$FIREHOSE_LOG"
-  # "$BIN_DIR/blockfetcher" 2>&1 | tee "$BLOCK_LOG"
+  "$BIN_DIR/blockfetcher" -config "$REPO_DIR/$CONFIG_FILE" 2>&1 | tee "$BLOCK_LOG" | "$BIN_DIR/firecardano" start 2>&1 | tee "$FIREHOSE_LOG"
+  # "$BIN_DIR/blockfetcher" -config "$REPO_DIR/$CONFIG_FILE" 2>&1 | tee "$BLOCK_LOG"
 ) &
 PID=$!
 

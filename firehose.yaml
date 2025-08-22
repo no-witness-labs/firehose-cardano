@@ -1,8 +1,25 @@
 start:
   args:
     - reader-node-stdin
+    - merger
     - firehose
+    - substreams-tier1
+    - substreams-tier2
   flags:
     data-dir: ./firehose-data
     log-format: text
     log-verbosity: 1
+    common-first-streamable-block: 12286865
+    advertise-chain-name: cardano
+    advertise-block-id-encoding: hex
+    # Merger configuration optimized for Cardano's 20s block time
+    merger-grpc-listen-addr: ":10012"
+    merger-time-between-store-lookups: "5s"              # Check for new blocks every 5s (4x per block)
+    merger-time-between-store-pruning: "5m0s"            # Prune every 5 minutes instead of 1 minute
+    merger-prune-forked-blocks-after: 2160               # ~12 hours worth of blocks (12*60*60/20)
+    merger-delete-threads: 4                             # Fewer threads for slower block production
+    # Substreams configuration
+    substreams-state-bundle-size: 100                    # Smaller bundles for faster streaming (~33 minutes)
+    substreams-tier1-grpc-listen-addr: ":10016"
+    substreams-tier2-grpc-listen-addr: ":10017"
+    substreams-tier1-block-type: "sf.cardano.type.v1.Block"

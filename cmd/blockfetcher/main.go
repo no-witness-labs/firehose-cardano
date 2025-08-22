@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
+	"flag"
 	"fmt"
 	"log"
 	"log/slog"
@@ -10,19 +12,33 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/BurntSushi/toml"
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
-	"github.com/kelseyhightower/envconfig"
 	"google.golang.org/protobuf/proto"
 )
 
 type BlockFetcherConfig struct {
-	Address       string `envconfig:"ADDRESS" default:"backbone.cardano.iog.io:3001"`
-	Network       string `envconfig:"NETWORK" default:"mainnet"`
-	NetworkMagic  uint32 `envconfig:"NETWORK_MAGIC" default:"0"`
-	PipelineLimit uint32 `envconfig:"PIPELINE_LIMIT" default:"10"`
+	Address       string `toml:"address"`
+	Network       string `toml:"network"`
+	NetworkMagic  uint32 `toml:"network_magic"`
+	PipelineLimit uint32 `toml:"pipeline_limit"`
+	StartSlot     uint64 `toml:"start_slot"`
+	StartHash     string `toml:"start_hash"`
+}
+
+func (c *BlockFetcherConfig) setDefaults() {
+	if c.Address == "" {
+		c.Address = "backbone.cardano.iog.io:3001"
+	}
+	if c.Network == "" {
+		c.Network = "mainnet"
+	}
+	if c.PipelineLimit == 0 {
+		c.PipelineLimit = 10
+	}
 }
 
 type SlotConfig struct {
@@ -130,11 +146,18 @@ func NewBlockFetcher(cfg *BlockFetcherConfig, logger *log.Logger) *BlockFetcher 
 	}
 }
 
-func loadConfig() (*BlockFetcherConfig, error) {
+func loadConfig(configPath string) (*BlockFetcherConfig, error) {
 	cfg := &BlockFetcherConfig{}
-	if err := envconfig.Process("BLOCK_FETCH", cfg); err != nil {
-		return nil, fmt.Errorf("failed to process environment config: %w", err)
+
+	if configPath != "" {
+		if _, err := toml.DecodeFile(configPath, cfg); err != nil {
+			return nil, fmt.Errorf("failed to decode TOML config file %s: %w", configPath, err)
+		}
 	}
+
+	// Set defaults for any unspecified values
+	cfg.setDefaults()
+
 	return cfg, nil
 }
 
@@ -155,6 +178,27 @@ func (bf *BlockFetcher) resolveNetworkMagic() error {
 		bf.config.NetworkMagic = network.NetworkMagic
 	}
 	return nil
+}
+
+func (bf *BlockFetcher) getStartPoint() (common.Point, error) {
+	// If both start slot and hash are provided, use them
+	if bf.config.StartSlot != 0 && bf.config.StartHash != "" {
+		hash, err := hex.DecodeString(bf.config.StartHash)
+		if err != nil {
+			return common.Point{}, fmt.Errorf("failed to decode start hash: %w", err)
+		}
+		point := common.NewPoint(bf.config.StartSlot, hash)
+		bf.logger.Printf("Using configured start point: slot=%d, hash=%s", bf.config.StartSlot, bf.config.StartHash)
+		return point, nil
+	}
+
+	// Otherwise, get current tip
+	tip, err := bf.connection.ChainSync().Client.GetCurrentTip()
+	if err != nil {
+		return common.Point{}, fmt.Errorf("failed to get current tip: %w", err)
+	}
+	bf.logger.Printf("Using current tip as start point: %#v", tip)
+	return tip.Point, nil
 }
 
 func (bf *BlockFetcher) chainSyncRollForwardHandler(
@@ -258,15 +302,12 @@ func (bf *BlockFetcher) start(ctx context.Context) error {
 
 	bf.logger.Println("Starting chain sync...")
 
-	tip, err := bf.connection.ChainSync().Client.GetCurrentTip()
+	point, err := bf.getStartPoint()
 	if err != nil {
-		return fmt.Errorf("failed to get current tip: %w", err)
+		return fmt.Errorf("failed to get start point: %w", err)
 	}
 
-	bf.logger.Printf("Starting sync from tip: %#v", tip)
-
-	point := tip.Point
-	// Start chain sync from tip
+	// Start chain sync from the determined point
 	if err := bf.connection.ChainSync().Client.Sync([]common.Point{point}); err != nil {
 		return fmt.Errorf("chain sync failed: %w", err)
 	}
@@ -317,13 +358,16 @@ func (bf *BlockFetcher) Run() error {
 func main() {
 	logger := log.New(os.Stderr, "[BlockFetcher] ", log.LstdFlags|log.Lshortfile)
 
-	cfg, err := loadConfig()
+	configPath := flag.String("config", "", "Path to TOML configuration file")
+	flag.Parse()
+
+	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		logger.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	logger.Printf("Starting Cardano Block Fetcher: Address=%s, Network=%s, NetworkMagic=%d, PipelineLimit=%d",
-		cfg.Address, cfg.Network, cfg.NetworkMagic, cfg.PipelineLimit)
+	logger.Printf("Starting Cardano Block Fetcher: Address=%s, Network=%s, NetworkMagic=%d, PipelineLimit=%d, StartSlot=%d, StartHash=%s",
+		cfg.Address, cfg.Network, cfg.NetworkMagic, cfg.PipelineLimit, cfg.StartSlot, cfg.StartHash)
 
 	fetcher := NewBlockFetcher(cfg, logger)
 

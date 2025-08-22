@@ -12,6 +12,7 @@ substreams = "0.5"
 prost = "0.11"
 prost-derive = "0.11"
 prost-types = "0.11"
+hex = "0.4"
 
 [build-dependencies]
 prost-build = "0.11"
