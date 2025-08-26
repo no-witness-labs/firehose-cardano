@@ -14,10 +14,10 @@ network_magic = 0
 pipeline_limit = 10
 
 # Starting slot number for block fetching (0 means start from current tip)
-start_slot = 164220519
+start_slot = 164399775
 
 # Starting block hash for block fetching (empty means use current tip)
-start_hash = "e37eb9e1b9bacbff9a64f3ccc737cc3a445d09fb30c43f698ca111a56a7af777"
+start_hash = "81aec08400173abad9a14da969ca3e23b6a5e96fafad207e0d95a34737f17d2d"
 
 # Example configurations for different networks:
 
