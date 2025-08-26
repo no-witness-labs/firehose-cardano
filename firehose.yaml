@@ -1,25 +1,41 @@
+# firehose.yaml
 start:
   args:
     - reader-node-stdin
     - merger
+    - relayer
     - firehose
     - substreams-tier1
     - substreams-tier2
   flags:
+    # General
     data-dir: ./firehose-data
     log-format: text
     log-verbosity: 1
-    common-first-streamable-block: 12286865
     advertise-chain-name: cardano
     advertise-block-id-encoding: hex
-    # Merger configuration optimized for Cardano's 20s block time
+    common-first-streamable-block: 12307298   # earliest block you have on disk
+
+    # Reader (produces one-blocks for the relayer)
+    reader-node-grpc-listen-addr: ":10010"
+
+    # Merger (history/backfill; merged bundles are always 100 blocks)
     merger-grpc-listen-addr: ":10012"
-    merger-time-between-store-lookups: "5s"              # Check for new blocks every 5s (4x per block)
-    merger-time-between-store-pruning: "5m0s"            # Prune every 5 minutes instead of 1 minute
-    merger-prune-forked-blocks-after: 2160               # ~12 hours worth of blocks (12*60*60/20)
-    merger-delete-threads: 4                             # Fewer threads for slower block production
-    # Substreams configuration
-    substreams-state-bundle-size: 100                    # Smaller bundles for faster streaming (~33 minutes)
+    merger-time-between-store-lookups: "5s"
+    merger-time-between-store-pruning: "5m0s"
+    merger-prune-forked-blocks-after: 2160
+    merger-delete-threads: 4
+    # DO NOT set "merger-bundle-size" (not supported)
+
+    # Relayer (serves LIVE one-blocks to Tier-1)
+    relayer-grpc-listen-addr: ":10015"
+
+    # Firehose gRPC (distinct port; don't collide with relayer)
+    firehose-grpc-listen-addr: ":10011"
+
+    # Substreams Tier-1 (tell it where LIVE comes from) & Tier-2
+    common-live-blocks-addr: "127.0.0.1:10015"  # must match relayer port
+    substreams-tier1-block-type: "sf.cardano.type.v1.Block"
     substreams-tier1-grpc-listen-addr: ":10016"
     substreams-tier2-grpc-listen-addr: ":10017"
-    substreams-tier1-block-type: "sf.cardano.type.v1.Block"
+    substreams-state-bundle-size: 10

@@ -1,6 +1,6 @@
 # Makefile for Firehose Cardano
 
-.PHONY: build run clean test lint fmt run-blockfetcher run-console-reader run-mainnet run-testnet gen-proto
+.PHONY: build run clean test lint fmt run-blockfetcher run-console-reader run-mainnet run-testnet gen-proto build-substreams pack-substreams
 
 # Generate protobuf Go files
 gen-proto:
@@ -69,6 +69,16 @@ deps:
 	@echo "Installing dependencies..."
 	go mod download
 	go mod tidy
+
+# Build substreams Rust module
+build-substreams:
+	@echo "Building substreams Rust module..."
+	cd substreams && cargo build --release --target wasm32-unknown-unknown
+
+# Pack substreams
+pack-substreams: build-substreams
+	@echo "Packing substreams..."
+	substreams pack substreams/substreams.yaml
 
 # Create bin directory
 bin:
