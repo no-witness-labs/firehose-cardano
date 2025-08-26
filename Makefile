@@ -8,8 +8,16 @@ gen-proto:
 	@mkdir -p types/pb
 	protoc --proto_path=proto --go_out=types/pb --go_opt=paths=source_relative proto/sf/cardano/type/v1/type.proto
 
+# Build all the CLI
+build: build-blockfetcher build-firecardano
+
+# Build the blockfetcher CLI
+build-blockfetcher:
+	@echo "Building blockfetcher CLI..."
+	go build -o bin/blockfetcher ./cmd/blockfetcher
+
 # Build the firecardano CLI
-build:
+build-firecardano:
 	@echo "Building firecardano CLI..."
 	go build -o bin/firecardano ./cmd/firecardano
 
