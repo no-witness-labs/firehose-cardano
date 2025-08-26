@@ -26,6 +26,8 @@ This project provides a unified CLI (`firecardano`) that includes:
 ### Prerequisites
 - Go 1.21+
 - `protoc` & `protoc-gen-go`
+- Rust (for substreams)
+- `substreams` CLI tool
 
 ### Build
 ```bash
@@ -58,9 +60,26 @@ make build
 ```
 
 ### Substreams
+
+#### Installation
 ```bash
-substreams pack substreams/substreams.yaml
-substreams run -e 127.0.0.1:10016 substreams/cardano-v0.1.0.spkg map_blocks -s 12295730 -t +10 --plaintext
+# Install Rust (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+rustup target add wasm32-unknown-unknown
+
+# Install substreams CLI
+curl -sSL https://github.com/streamingfast/substreams/releases/download/v1.10.6/substreams_linux_x86_64.tar.gz | tar -xz -C /tmp
+sudo mv /tmp/substreams /usr/local/bin/
 ```
 
+#### Build and Run
+```bash
+# Build the Rust WASM module
+make build-substreams
 
+# Pack the substreams
+make pack-substreams
+
+# Run the substream
+substreams run -e 127.0.0.1:10016 substreams/cardano-v0.1.0.spkg map_blocks -s 12295730 -t +10 --plaintext
+```
