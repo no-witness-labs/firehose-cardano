@@ -22,6 +22,7 @@ import (
 
 type BlockFetcherConfig struct {
 	Address       string `toml:"address"`
+	SocketPath    string `toml:"socket_path"`
 	Network       string `toml:"network"`
 	NetworkMagic  uint32 `toml:"network_magic"`
 	PipelineLimit uint32 `toml:"pipeline_limit"`
@@ -30,7 +31,7 @@ type BlockFetcherConfig struct {
 }
 
 func (c *BlockFetcherConfig) setDefaults() {
-	if c.Address == "" {
+	if c.Address == "" && c.SocketPath == "" {
 		c.Address = "backbone.cardano.iog.io:3001"
 	}
 	if c.Network == "" {
@@ -257,7 +258,16 @@ func (bf *BlockFetcher) connect(ctx context.Context) error {
 		return err
 	}
 
-	bf.logger.Printf("Connecting to %s (network magic: %d)", bf.config.Address, bf.config.NetworkMagic)
+	var protocol, address string
+	var isN2N bool
+	if bf.config.Address != "" {
+		protocol, address = "tcp", bf.config.Address
+		isN2N = true
+	} else if bf.config.SocketPath != "" {
+		protocol, address = "unix", bf.config.SocketPath
+	}
+
+	bf.logger.Printf("Connecting to [%s] %s (network magic: %d)", protocol, address, bf.config.NetworkMagic)
 
 	errorChan := make(chan error, 1)
 
@@ -277,7 +287,7 @@ func (bf *BlockFetcher) connect(ctx context.Context) error {
 	conn, err := ouroboros.NewConnection(
 		ouroboros.WithNetworkMagic(bf.config.NetworkMagic),
 		ouroboros.WithErrorChan(errorChan),
-		ouroboros.WithNodeToNode(true),
+		ouroboros.WithNodeToNode(isN2N),
 		ouroboros.WithKeepAlive(true),
 		ouroboros.WithChainSyncConfig(bf.buildChainSyncConfig()),
 		ouroboros.WithLogger(bf.slogger),
@@ -286,8 +296,8 @@ func (bf *BlockFetcher) connect(ctx context.Context) error {
 		return fmt.Errorf("failed to create connection: %w", err)
 	}
 
-	if err := conn.Dial("tcp", bf.config.Address); err != nil {
-		return fmt.Errorf("failed to dial %s: %w", bf.config.Address, err)
+	if err := conn.Dial(protocol, address); err != nil {
+		return fmt.Errorf("failed to dial [%s] %s: %w", protocol, address, err)
 	}
 
 	bf.connection = conn
