@@ -56,6 +56,12 @@ make build
 # Custom start point
 ./bin/blockfetcher -address=backbone.cardano.iog.io:3001 -start-slot=164636374 -start-hash=71a1e62336b566d31115dee65ed0a506b4bc10c2bbb7a37cedddb2d97dd31b1d
 
+# With cursor file for resuming (saves progress automatically)
+./bin/blockfetcher -address=backbone.cardano.iog.io:3001 -cursor-file=cursor.json
+
+# Resume from cursor file (will start from saved position)
+./bin/blockfetcher -address=backbone.cardano.iog.io:3001 -cursor-file=cursor.json
+
 # All available options
 ./bin/blockfetcher -h
 ```

@@ -8,7 +8,7 @@ LOG_DIR="$REPO_DIR/devel/localnet/logs"
 mkdir -p "$BIN_DIR" "$LOG_DIR"
 
 # CLI arguments for blockfetcher (can be overridden via environment)
-BLOCKFETCHER_ARGS=${BLOCKFETCHER_ARGS:-"-address=backbone.cardano.iog.io:3001 -network=mainnet -network-magic=0 -pipeline-limit=10 -start-slot=164636374 -start-hash=71a1e62336b566d31115dee65ed0a506b4bc10c2bbb7a37cedddb2d97dd31b1d"}
+BLOCKFETCHER_ARGS=${BLOCKFETCHER_ARGS:-"-address=backbone.cardano.iog.io:3001 -network=mainnet -network-magic=0 -pipeline-limit=10 -start-slot=164636374 -start-hash=71a1e62336b566d31115dee65ed0a506b4bc10c2bbb7a37cedddb2d97dd31b1d -cursor-file=$LOG_DIR/cursor.json"}
 
 BUILD_ONLY=0
 CLEAN=0

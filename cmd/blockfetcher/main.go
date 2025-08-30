@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
@@ -26,6 +28,16 @@ type BlockFetcherConfig struct {
 	PipelineLimit uint32
 	StartSlot     uint64
 	StartHash     string
+	CursorFile    string
+}
+
+type CursorPoint struct {
+	Slot uint64 `json:"slot"`
+	Hash string `json:"hash"`
+}
+
+type CursorState struct {
+	Points []CursorPoint `json:"points"`
 }
 
 func (c *BlockFetcherConfig) setDefaults() {
@@ -57,6 +69,69 @@ func slotToBeginUnixTime(slot uint64, slotConfig SlotConfig) int64 {
 	return slotConfig.ZeroTime + msAfterBegin
 }
 
+func shouldStoreCursorPoint(currentSlot, baseSlot uint64) bool {
+	if baseSlot == 0 {
+		return true
+	}
+
+	distance := currentSlot - baseSlot
+
+	return distance <= 10 ||
+		(distance <= 1000 && distance%10 == 0) ||
+		distance%100 == 0
+}
+
+func (bf *BlockFetcher) addCursorPoint(point common.Point) {
+	if bf.baseSlot == 0 {
+		bf.baseSlot = point.Slot
+		bf.cursorPoints = []common.Point{point}
+		return
+	}
+
+	if shouldStoreCursorPoint(point.Slot, bf.baseSlot) {
+		bf.cursorPoints = append([]common.Point{point}, bf.cursorPoints...)
+
+		if len(bf.cursorPoints) > 200 {
+			bf.cursorPoints = bf.cursorPoints[:200]
+		}
+	}
+}
+
+func loadCursorState(filename string) (*CursorState, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	var cursor CursorState
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return nil, err
+	}
+
+	return &cursor, nil
+}
+
+func saveCursorState(filename string, points []common.Point) error {
+	cursorPoints := make([]CursorPoint, len(points))
+	for i, point := range points {
+		cursorPoints[i] = CursorPoint{
+			Slot: point.Slot,
+			Hash: hex.EncodeToString(point.Hash),
+		}
+	}
+
+	cursor := CursorState{
+		Points: cursorPoints,
+	}
+
+	data, err := json.MarshalIndent(cursor, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filename, data, 0644)
+}
+
 type FirehoseInstrumentation struct {
 	blockTypeURL string
 	logger       *log.Logger
@@ -80,7 +155,7 @@ func (f *FirehoseInstrumentation) OutputBlock(block ledger.Block) error {
 	blockHash := block.Hash()
 	parentNumber := blockNumber - 1
 	parentHash := block.Header().PrevHash()
-	libNum := blockNumber - 108
+	libNum := blockNumber - 2160
 	timestampMs := slotToBeginUnixTime(block.SlotNumber(), f.slotConfig)
 	timestamp := timestampMs * 1000000
 
@@ -117,12 +192,14 @@ func (f *FirehoseInstrumentation) serializeBlock(block ledger.Block) ([]byte, er
 }
 
 type BlockFetcher struct {
-	config     *BlockFetcherConfig
-	connection *ouroboros.Connection
-	logger     *log.Logger
-	slogger    *slog.Logger
-	firehose   *FirehoseInstrumentation
-	slotConfig SlotConfig
+	config       *BlockFetcherConfig
+	connection   *ouroboros.Connection
+	logger       *log.Logger
+	slogger      *slog.Logger
+	firehose     *FirehoseInstrumentation
+	slotConfig   SlotConfig
+	cursorPoints []common.Point // Store points using exponential strategy
+	baseSlot     uint64         // Base slot for exponential calculation
 }
 
 func NewBlockFetcher(cfg *BlockFetcherConfig, logger *log.Logger) *BlockFetcher {
@@ -151,6 +228,7 @@ func parseFlags() *BlockFetcherConfig {
 	flag.StringVar(&cfg.Address, "address", "", "Cardano node address (e.g., backbone.cardano.iog.io:3001)")
 	flag.StringVar(&cfg.SocketPath, "socket-path", "", "Unix socket path for local node connection")
 	flag.StringVar(&cfg.Network, "network", "mainnet", "Network: mainnet, preview, preprod")
+	flag.StringVar(&cfg.CursorFile, "cursor-file", "", "File to store/read cursor state for resuming (e.g., cursor.json)")
 	flag.Func("network-magic", "Network magic number (0 = auto-detect)", func(s string) error {
 		if s == "" {
 			cfg.NetworkMagic = 0
@@ -180,8 +258,15 @@ func parseFlags() *BlockFetcherConfig {
 
 	flag.Parse()
 
-	// Set defaults for any unspecified values
 	cfg.setDefaults()
+
+	if cfg.CursorFile != "" {
+		if cursor, err := loadCursorState(cfg.CursorFile); err == nil && len(cursor.Points) > 0 {
+			latestPoint := cursor.Points[0]
+			cfg.StartSlot = latestPoint.Slot
+			cfg.StartHash = latestPoint.Hash
+		}
+	}
 
 	return cfg
 }
@@ -190,6 +275,18 @@ func (bf *BlockFetcher) processBlock(block ledger.Block) error {
 	if err := bf.firehose.OutputBlock(block); err != nil {
 		return err
 	}
+
+	if bf.config.CursorFile != "" {
+		hashBytes := block.Hash()
+		currentPoint := common.NewPoint(block.SlotNumber(), hashBytes[:])
+
+		bf.addCursorPoint(currentPoint)
+
+		if err := saveCursorState(bf.config.CursorFile, bf.cursorPoints); err != nil {
+			bf.logger.Printf("Warning: Failed to save cursor state: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -205,25 +302,42 @@ func (bf *BlockFetcher) resolveNetworkMagic() error {
 	return nil
 }
 
-func (bf *BlockFetcher) getStartPoint() (common.Point, error) {
-	// If both start slot and hash are provided, use them
+func (bf *BlockFetcher) getStartPoints() ([]common.Point, error) {
+	if bf.config.CursorFile != "" {
+		if cursor, err := loadCursorState(bf.config.CursorFile); err == nil && len(cursor.Points) > 0 {
+			points := make([]common.Point, 0, len(cursor.Points))
+			for _, cp := range cursor.Points {
+				hash, err := hex.DecodeString(cp.Hash)
+				if err != nil {
+					bf.logger.Printf("Warning: Failed to decode cursor hash %s: %v", cp.Hash, err)
+					continue
+				}
+				point := common.NewPoint(cp.Slot, hash)
+				points = append(points, point)
+			}
+			if len(points) > 0 {
+				bf.logger.Printf("Using cursor points for intersection (count=%d, latest slot=%d)", len(points), points[0].Slot)
+				return points, nil
+			}
+		}
+	}
+
 	if bf.config.StartSlot != 0 && bf.config.StartHash != "" {
 		hash, err := hex.DecodeString(bf.config.StartHash)
 		if err != nil {
-			return common.Point{}, fmt.Errorf("failed to decode start hash: %w", err)
+			return nil, fmt.Errorf("failed to decode start hash: %w", err)
 		}
 		point := common.NewPoint(bf.config.StartSlot, hash)
 		bf.logger.Printf("Using configured start point: slot=%d, hash=%s", bf.config.StartSlot, bf.config.StartHash)
-		return point, nil
+		return []common.Point{point}, nil
 	}
 
-	// Otherwise, get current tip
 	tip, err := bf.connection.ChainSync().Client.GetCurrentTip()
 	if err != nil {
-		return common.Point{}, fmt.Errorf("failed to get current tip: %w", err)
+		return nil, fmt.Errorf("failed to get current tip: %w", err)
 	}
 	bf.logger.Printf("Using current tip as start point: %#v", tip)
-	return tip.Point, nil
+	return []common.Point{tip.Point}, nil
 }
 
 func (bf *BlockFetcher) chainSyncRollForwardHandler(
@@ -336,17 +450,15 @@ func (bf *BlockFetcher) start(ctx context.Context) error {
 
 	bf.logger.Println("Starting chain sync...")
 
-	point, err := bf.getStartPoint()
+	points, err := bf.getStartPoints()
 	if err != nil {
-		return fmt.Errorf("failed to get start point: %w", err)
+		return fmt.Errorf("failed to get start points: %w", err)
 	}
 
-	// Start chain sync from the determined point
-	if err := bf.connection.ChainSync().Client.Sync([]common.Point{point}); err != nil {
+	if err := bf.connection.ChainSync().Client.Sync(points); err != nil {
 		return fmt.Errorf("chain sync failed: %w", err)
 	}
 
-	// Wait for context cancellation (shutdown signal)
 	<-ctx.Done()
 	bf.logger.Println("Context cancelled, stopping chain sync...")
 

@@ -10,6 +10,7 @@
 
 firehose-data
 out
+**/cursor.json
 .env
 
 bin/*
