@@ -41,16 +41,30 @@ make build
 
 ### Fetch blocks
 ```bash
-./bin/blockfetcher -config blockfetcher.toml
-# or for testnet
-./bin/blockfetcher -config blockfetcher-testnet.toml
+# Mainnet (default)
+./bin/blockfetcher -address=backbone.cardano.iog.io:3001 -network=mainnet
+
+# Preview testnet
+./bin/blockfetcher -address=backbone.cardano-preview.iog.io:3001 -network=preview -network-magic=2
+
+# Preprod testnet
+./bin/blockfetcher -address=backbone.cardano-preprod.iog.io:3001 -network=preprod -network-magic=1
+
+# Local socket connection
+./bin/blockfetcher -socket-path=/var/cardano/node.socket -network=mainnet
+
+# Custom start point
+./bin/blockfetcher -address=backbone.cardano.iog.io:3001 -start-slot=164636374 -start-hash=71a1e62336b566d31115dee65ed0a506b4bc10c2bbb7a37cedddb2d97dd31b1d
+
+# All available options
+./bin/blockfetcher -h
 ```
 
 ### Console reader
 ```bash
 ./bin/firecardano console-reader
 # or pipe:
-./bin/blockfetcher | ./bin/firecardano console-reader
+./bin/blockfetcher -address=backbone.cardano.iog.io:3001 | ./bin/firecardano console-reader
 ```
 
 ### Firehose gRPC API
@@ -81,5 +95,5 @@ make build-substreams
 make pack-substreams
 
 # Run the substream
-substreams run -e 127.0.0.1:10016 substreams/cardano-v0.1.0.spkg map_blocks -s 12295730 -t +10 --plaintext
+substreams run -e 127.0.0.1:10016 substreams/cardano-v0.1.0.spkg map_blocks --stop-block 0 --plaintext
 ```

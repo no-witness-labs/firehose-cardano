@@ -11,8 +11,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-
-	"github.com/BurntSushi/toml"
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
@@ -21,13 +19,13 @@ import (
 )
 
 type BlockFetcherConfig struct {
-	Address       string `toml:"address"`
-	SocketPath    string `toml:"socket_path"`
-	Network       string `toml:"network"`
-	NetworkMagic  uint32 `toml:"network_magic"`
-	PipelineLimit uint32 `toml:"pipeline_limit"`
-	StartSlot     uint64 `toml:"start_slot"`
-	StartHash     string `toml:"start_hash"`
+	Address       string
+	SocketPath    string
+	Network       string
+	NetworkMagic  uint32
+	PipelineLimit uint32
+	StartSlot     uint64
+	StartHash     string
 }
 
 func (c *BlockFetcherConfig) setDefaults() {
@@ -147,19 +145,45 @@ func NewBlockFetcher(cfg *BlockFetcherConfig, logger *log.Logger) *BlockFetcher 
 	}
 }
 
-func loadConfig(configPath string) (*BlockFetcherConfig, error) {
+func parseFlags() *BlockFetcherConfig {
 	cfg := &BlockFetcherConfig{}
 
-	if configPath != "" {
-		if _, err := toml.DecodeFile(configPath, cfg); err != nil {
-			return nil, fmt.Errorf("failed to decode TOML config file %s: %w", configPath, err)
+	flag.StringVar(&cfg.Address, "address", "", "Cardano node address (e.g., backbone.cardano.iog.io:3001)")
+	flag.StringVar(&cfg.SocketPath, "socket-path", "", "Unix socket path for local node connection")
+	flag.StringVar(&cfg.Network, "network", "mainnet", "Network: mainnet, preview, preprod")
+	flag.Func("network-magic", "Network magic number (0 = auto-detect)", func(s string) error {
+		if s == "" {
+			cfg.NetworkMagic = 0
+			return nil
 		}
-	}
+		var val uint64
+		if _, err := fmt.Sscanf(s, "%d", &val); err != nil {
+			return err
+		}
+		cfg.NetworkMagic = uint32(val)
+		return nil
+	})
+	flag.Func("pipeline-limit", "Number of concurrent block fetch requests (default: 10)", func(s string) error {
+		if s == "" {
+			cfg.PipelineLimit = 10
+			return nil
+		}
+		var val uint64
+		if _, err := fmt.Sscanf(s, "%d", &val); err != nil {
+			return err
+		}
+		cfg.PipelineLimit = uint32(val)
+		return nil
+	})
+	flag.Uint64Var(&cfg.StartSlot, "start-slot", 0, "Starting slot number (0 = current tip)")
+	flag.StringVar(&cfg.StartHash, "start-hash", "", "Starting block hash (empty = use current tip)")
+
+	flag.Parse()
 
 	// Set defaults for any unspecified values
 	cfg.setDefaults()
 
-	return cfg, nil
+	return cfg
 }
 
 func (bf *BlockFetcher) processBlock(block ledger.Block) error {
@@ -368,13 +392,7 @@ func (bf *BlockFetcher) Run() error {
 func main() {
 	logger := log.New(os.Stderr, "[BlockFetcher] ", log.LstdFlags|log.Lshortfile)
 
-	configPath := flag.String("config", "", "Path to TOML configuration file")
-	flag.Parse()
-
-	cfg, err := loadConfig(*configPath)
-	if err != nil {
-		logger.Fatalf("Failed to load configuration: %v", err)
-	}
+	cfg := parseFlags()
 
 	logger.Printf("Starting Cardano Block Fetcher: Address=%s, Network=%s, NetworkMagic=%d, PipelineLimit=%d, StartSlot=%d, StartHash=%s",
 		cfg.Address, cfg.Network, cfg.NetworkMagic, cfg.PipelineLimit, cfg.StartSlot, cfg.StartHash)

@@ -5,11 +5,15 @@
 *.spkg
 
 /firecardano
+/blockfetcher
 /dist
 
 firehose-data
+out
 .env
 
 bin/*
 *.log
 *.pid
+
+state.yaml

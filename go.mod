@@ -5,7 +5,6 @@ go 1.24.2
 toolchain go1.24.6
 
 require (
-	github.com/BurntSushi/toml v1.5.0
 	github.com/blinklabs-io/gouroboros v0.130.1
 	github.com/streamingfast/bstream v0.0.2-0.20250416133616-23bdc92e0e9c
 	github.com/streamingfast/firehose-core v1.10.2
